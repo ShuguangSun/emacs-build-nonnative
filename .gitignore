@@ -1,0 +1,8 @@
+build
+git
+pkg
+zips
+*~
+#*
+msys64
+*.log

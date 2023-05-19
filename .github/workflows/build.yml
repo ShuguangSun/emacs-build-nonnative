@@ -1,0 +1,111 @@
+# This is a basic workflow to help you get started with Actions
+
+name: build-nn
+
+# Controls when the action will run.
+on:
+  schedule:
+    - cron: "0 0 * * 5" # monthly
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # Matrix strategy from
+    # https://github.com/msys2/MINGW-packages/blob/master/.github/workflows/main.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            shell: powershell
+            arch: x86_64
+          # - os: ubuntu-22.04
+          #   shell: bash
+
+    # The type of runner that the job will run on
+    runs-on: ${{ matrix.os }}
+    env:
+      MSYS2_DIR: C:\msys64
+      EMACS_REPO: https://github.com/kiennq/emacs.git
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
+
+      # Setup msys2
+      - uses: msys2/setup-msys2@v2
+        if: runner.os == 'Windows'
+        with:
+          release: false
+      # This is the shortest job, but in this case it pulls all MSYS/MINGW64
+      - name: Clone Emacs
+        if: runner.os == 'Windows'
+        run: .\emacs-build.cmd --clone --repo https://github.com/kiennq/emacs.git --depth 1
+
+      - name: Clone Emacs
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p ./git/emacs
+          cd ./git/emacs/
+          git clone --depth 1 $EMACS_REPO .
+          echo "EMACS_COMMIT=`date +'%Y%m%d'`.`git rev-parse --short=7 HEAD`" >> $GITHUB_ENV
+          echo "EMACS_MAJOR_VER=`cat configure.ac | grep -Po 'AC_INIT\(.*\[\K\d+'`" >> $GITHUB_ENV
+
+      - name: Set package version
+        run: |
+          echo "EMACS_VER=${{ env.EMACS_MAJOR_VER }}.${{ github.run_number }}.${{ env.EMACS_COMMIT }}" >> $GITHUB_ENV
+        shell: bash
+
+      - name: Build and pack Emacs
+        if: runner.os == 'Windows'
+        # Require --nativecomp and --with-* flags, else the deps will not be included properly
+        run: |
+          .\emacs-build.cmd --slim --with-rsvg --with-native-image-api --build
+          .\emacs-build.cmd --slim --with-rsvg --with-native-image-api --pack-all
+
+      - name: Build and pack Emacs
+        if: runner.os != 'Windows'
+        run: |
+          chmod 755 ./emacs-build-unix.sh
+          mkdir -p ./zips
+          ./emacs-build-unix.sh -s ./git/emacs/ -v ${{ env.EMACS_VER }} -d ./zips
+
+      # Upload everything
+      - name: Upload binaries
+        uses: actions/upload-artifact@v2
+        with:
+          name: emacs-packages
+          path: zips/*
+          if-no-files-found: error
+
+    outputs:
+      version: ${{ env.EMACS_VER }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download binaries
+        uses: actions/download-artifact@v2
+        with:
+          name: emacs-packages
+      - run: ls -R
+
+      # Create release
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: emacs_${{ needs.build.outputs.version }}
+          prerelease: false
+          files: |
+            *-full.zip
