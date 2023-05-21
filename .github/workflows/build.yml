@@ -4,8 +4,8 @@ name: build-nn
 
 # Controls when the action will run.
 on:
-  # schedule:
-  #   - cron: "0 0 * * *" # monthly
+  schedule:
+    - cron: "15 12 * * 1" # monthly
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -68,8 +68,8 @@ jobs:
         if: runner.os == 'Windows'
         # Require --nativecomp and --with-* flags, else the deps will not be included properly
         run: |
-          .\emacs-build.cmd --slim --with-rsvg --with-native-image-api --build
-          .\emacs-build.cmd --slim --with-rsvg --with-native-image-api --pack-all
+          .\emacs-build.cmd --slim --with-rsvg --with-tiff --with-native-image-api --build
+          .\emacs-build.cmd --slim --with-rsvg --with-tiff --with-native-image-api --pack-all
 
       - name: Build and pack Emacs
         if: runner.os != 'Windows'
